@@ -64,11 +64,11 @@ class VAE(nn.Module):
 
     def reparameterize(self, A_, B_, g_, k_, c_):
         A, B, g, k, c = A_, torch.exp(B_), g_, torch.exp(k_)-0.5, torch.sigmoid(c_)*0.82
-        z = torch.randn_like(A).to(A.device)
-        w = (1 - torch.exp(- g * z)) / (1 + torch.exp(- g * z))
-        v = z * (1 + z ** 2).pow(k)
+        e = torch.randn_like(A).to(A.device)
+        w = (1 - torch.exp(- g * e)) / (1 + torch.exp(- g * e))
+        v = e * (1 + e ** 2).pow(k)
         z = A + B * (1 + c * w) * v
-        param = (A, B, g, k, c, w, v)
+        param = (e, A, B, g, k, c, w, v)
         # pdb.set_trace()
         return z, param
 
@@ -90,7 +90,8 @@ class VAE(nn.Module):
 def loss_function(recon_x, x, z, param):
     BCE = F.binary_cross_entropy(recon_x, x.view(-1, 784), reduction='sum')
 
-    A, B, g, k, c, w, v = param
+    n, d = z.shape
+    e, A, B, g, k, c, w, v = param
     # w = (1-torch.exp(-g*z))/(1+torch.exp(-g*z))
     # v = z*(1+z**2).pow(k)
     # Q = A + B * (1 + c * w) * v
@@ -98,7 +99,12 @@ def loss_function(recon_x, x, z, param):
     dv_z = (1+z**2).pow(k) + (2*k*z**2)*(1+z**2).pow(k-1)
     dx_z = B*(c*dw_z*v + (1+c*w)*dv_z)
     log_abs_det1 = torch.sum(torch.log(dx_z.abs()), dim=1)
-    KLD = - log_abs_det1.sum()
+
+    dist = torch.distributions.multivariate_normal.MultivariateNormal(torch.zeros(d).to(x.device), torch.eye(d).to(x.device))
+
+    KLD = dist.log_prob(e).sum() - log_abs_det1.sum() - dist.log_prob(z).sum()
+
+
 
     # # see Appendix B from VAE paper:
     # # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
@@ -106,7 +112,7 @@ def loss_function(recon_x, x, z, param):
     # # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
     # KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
-    # print('BCE: {:.6f} KLD: {:.6f}'.format(BCE.item(), KLD.item()))
+    print('BCE: {:.6f} KLD: {:.6f}'.format(BCE.item(), KLD.item()))
     return BCE + KLD
     # return BCE
 
